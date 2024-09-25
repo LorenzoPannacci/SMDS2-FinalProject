@@ -1,0 +1,1048 @@
+---
+title: "Bayesian analysis for Coronary Artery Disease detection"
+subtitle: "Statistical Methods for Data Science 2 - Final project"
+author: "Lorenzo Pannacci - 1948926"
+date: "09/25/2024"
+date-format: "DD MM YYYY"
+title-block-banner: "#862633"
+title-block-banner-color: white
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    theme: cosmo
+    fontcolor: black
+    toc: true
+    toc-location: left
+    toc-title: ‎
+    toc-depth: 3
+    toc-expand: true
+    css: style.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r libraries, cache=TRUE}
+# load all required libraries
+library(knitr)
+library(plotly)
+library(ggplot2)
+library(gridExtra)
+library(caret)
+library(dplyr)
+library(corrplot)
+library(R2jags)
+library(ggmcmc)
+```
+
+# Introduction and motivation
+
+Coronary Artery Disease (CAD; in Italian "Coronaropatia"), is a type of Cardiovascular Disease (CVD) where the coronary arteries cannot deliver enough oxygen-rich blood to the heart. According to the *National Heart, Lung and Blood Institute* website "**CVDs are the leading cause of death in the United States**" (695.000 deaths per year in the US, 1 in every 5 deaths) and "**coronary heart diseases are the most common type of CVD**" (375.476 deaths per year in the US), with similar proportions around the whole world. In 2021 they were the world's single biggest killer with 20.5 million deaths globally.
+
+CAD is caused by the build up of plaque made of cholesterol in coronary arteries; this phenomenon is called atherosclerosis. The deposit can partially or totally block the flow of blood in the arteries or ease their blockage by formations of blood clots.
+
+![Infographic about how the coronary heart disease works. Image from Cleveland Clinic.](images/cad.jpeg){#id .class width=50% height=50%}
+
+Symptoms of CAD are chest pain, heartburn and shortness of breath but their presence may differ from person to person even if they have the same type of coronary heart disease, but much more **commonly it presents no symptoms at all**, with the first manifest sign of the disorder being a *heart attack*, which itself can cause a cardiac arrest, a life-threatening medical emergency if not treated within minutes: **25% of people who have a CAD die suddenly without any previous symptom**.
+
+Given the difficulty in detection, the severity of the effects and its widespread diffusion throughout the world's population a timely and accurate diagnosis of the disease in its early and more asymptomatic phase is extremely important for an early treatment and could save many lives every year.
+
+The proposed study wants to use Bayesian Inference to build a model capable of detecting CAD from *non-invasive clinical parameters of patients* (as opposed to the coronary angiogram, described below). The Bayesian approach in this case is particularly suitable given the low amount of entries we have in the dataset that has been taken into exam.
+
+# Data
+
+## Dataset description
+
+The data used for this project come from a publicly available dataset called "**Z-Alizadeh Sani**", collected in 2012 for research purposes by *Dr. Zahra Alizadeh Sani*, associate professor of Cardiology at Iran University, and donated to the *UC Irvine Machine Learning Repository* (available [here](https://archive.ics.uci.edu/)) in 2017.
+
+A particularly positive aspect of this dataset is its completeness, there are no missing values.
+
+The dataset contains the records of 303 individuals, random visitors to *Shaheed Rajaei Cardiovascular, Medical and Research Center of Tehran*. Each sample has 55 features and a target category. All the features that are recorded in the dataset have been chosen by the author due to being considered indicators of CAD according to the current medical literature. The features are arranged in four groups:
+
+* **Demographic**
+* **Symptom and examination**
+* **ECG (electrocardiogram)**
+* **Laboratory and echo**
+
+The ground truth classification is the result of a *Coronary Angiogram* made on the patient, an imaging technique used to visualize blood vessels, arteries and veins using X-rays and a radio-opaque contrast agent inserted in the blood flow. While accurate this method is rarely performed due to its high cost and the invasiveness of the procedure.
+
+![Angiogram of the heart showing a severe coronary narrowing. Image from Capital Heart Centre.](images/angiography.jpeg){#id .class width=50% height=50%}
+
+Each patient is in one of two possible categories: *CAD* or *Normal*. A patient is categorized as *CAD* if the diameter narrowing on an artery is greater than or equal to 50% and is otherwise categorized as *Normal*. Over the total of 303 individuals 216 samples have CAD and the rest are healthy.
+
+The following table summarize the features of the dataset, their meaning and the values they take:
+
+| **Feature Type**       | **Feature Name**                      | **Range**                        |
+|------------------------|---------------------------------------|----------------------------------|
+| **Demographic**        | Age (years)                           | 30–86                            |
+|                        | Weight (kg)                           | 48–120                           |
+|                        | Length (height, cm)                   | 140–188                          |
+|                        | Sex                                   | male, female                     |
+|                        | BMI (body mass index, kg/m²)          | 18–41                            |
+|                        | DM (history of diabetes mellitus)     | yes, no (binary)                 |
+|                        | HTN (history of hyper tension)        | yes, no (binary)                 |
+|                        | Current smoker                        | yes, no (binary)                 |
+|                        | Ex Smoker                             | yes, no (binary)                 |
+|                        | FH (history of CVD in first-degree relatives) | yes, no (binary)         |
+|                        | Obesity                               | yes, no (string)                 |
+|                        | CRF (chronic renal failure)           | yes, no (string)                 |
+|                        | CVA (cerebrovascular accident)        | yes, no (string)                 |
+|                        | Airway disease                        | yes, no (string)                 |
+|                        | Thyroid Disease                       | yes, no (string)                 |
+|                        | CHF (congestive heart failure)        | yes, no (string)                 |
+|                        | DLP (dyslipidemia, high lipids in blood)| yes, no (string)               |
+| **Symptom and Examination** | BP (blood pressure, mmHg)        | 90–190                           |
+|                        | PR (pulse rate, ppm)                  | 50–110                           |
+|                        | Edema (fluid retention in body tissue)| yes, no (binary)                 |
+|                        | Weak peripheral pulse                 | yes, no (string)                 |
+|                        | Lung rales (abnormal lung sounds)     | yes, no (string)                 |
+|                        | Systolic murmur                       | yes, no (string)                 |
+|                        | Diastolic murmur                      | yes, no (string)                 |
+|                        | Typical Chest Pain                    | yes, no (binary)                 |
+|                        | Dyspnea (shortness of breath)         | yes, no (string)                 |
+|                        | Function class (frequency of symptoms)| 1, 2, 3, 4                       |
+|                        | Atypical                              | yes, no (string)                 |
+|                        | Nonanginal CP (chest pain at rest)    | yes, no (string)                 |
+|                        | Exertional CP (chest Pain during physical exertion)| yes, no (string)    |
+|                        | Low Th Ang (low threshold angina)     | yes, no (string)                 |
+| **ECG (electrocardiogram)**| Q Wave                            | yes, no (binary)                 |
+|                        | ST Elevation                          | yes, no (binary)                 |
+|                        | ST Depression                         | yes, no (binary)                 |
+|                        | T inversion                           | yes, no (binary)                 |
+|                        | LVH (left ventricular hypertrophy)    | yes, no (string)                 |
+|                        | Poor R progression                    | yes, no (string)                 |
+|                        | BBB (bundle branch block)             | no, left, right                  |
+| **Laboratory and Echo**| FBS (fasting blood sugar, mg/dl)      | 62–400                           |
+|                        | Cr (creatine, mg/dl)                  | 0.5–2.2                          |
+|                        | TG (triglyceride, mg/dl)              | 37–1050                          |
+|                        | LDL (low density lipoprotein, mg/dl)  | 18–232                           |
+|                        | HDL (high density lipoprotein, mg/dl) | 15–111                           |
+|                        | BUN (blood urea nitrogen, mg/dl)      | 6–52                             |
+|                        | ESR (erythrocyte sedimentation rate, mm/h) | 1–90                        |
+|                        | HB (hemoglobin, g/dl)                 | 8.9–17.6                         |
+|                        | K (potassium, mEq/lit)                | 3.0–6.6                          |
+|                        | Na (sodium, mEq/lit)                  | 128–156                          |
+|                        | WBC (white blood cell, cells/ml)      | 3700–18000                       |
+|                        | Lymph (lymphocyte, %)                 | 7–60                             |
+|                        | Neut (neutrophil, %)                  | 32–89                            |
+|                        | PLT (platelet, 1000/ml)               | 25–742                           |
+|                        | EF (ejection fraction, %)             | 9–65                             |
+|                        | Region with RWMA (regional wall motion abnormality) | 0, 1, 2, 3, 4      |
+|                        | VHD (valvular heart disease)          | normal, mild, moderate, severe   |
+| **Target**             | Cath (cardiac catheterization)        | cad, Normal                      |
+
+## Preprocessing and cleaning
+
+To get an idea of the raw data we provide some example entries in the dataset:
+
+```{r head of dataset, cache=TRUE}
+# read CSV file
+data = read.csv("Z-Alizadeh Sani dataset.csv")
+
+# print head
+knitr::kable(head(data, 5), col.names = gsub("[.]", " ", names(data)))
+```
+
+<br />
+Since the features are represented in many different formats the first thing we have to do is to perform an operation of **data cleaning and preparation**. Binary features in the string form *yes/no* become booleans and the same happens for the *Sex* and the target variable *Cath*.
+
+The feature *VHD* is populated with 4 different kind of strings, we can easily convert them into the integers 0-3 since they imply sequentiality.
+
+Also the feature *BBB* contains multiple strings but since there is no sequentiality between the values we have to perform a one-hot encoding conversion, creating more variables.
+
+Moreover we removed the feature *Exertional CP* since all its entries have the same value. This is how the same rows of before appear after the preprocessing:
+
+```{r data preprocessing, echo = FALSE, cache=TRUE}
+
+# we save a copy of the original data to ease the plots later
+original_data = data.frame(data)
+
+# convert Y-N features to 1 and 0
+yn_features = c('Obesity', 'CRF', 'CVA', 'Airway.disease', 'Thyroid.Disease', 'CHF', 
+              'DLP', 'Weak.Peripheral.Pulse', 'Lung.rales', 'Systolic.Murmur', 
+              'Diastolic.Murmur', 'Dyspnea', 'Atypical', 'Nonanginal', 
+              'LowTH.Ang', 'LVH', 'Poor.R.Progression')
+
+data[yn_features] = lapply(data[yn_features], function(x) ifelse(x == 'Y', 1, 0))
+
+
+# convert other features
+data$Sex = ifelse(data$Sex == 'Male', 1, 0)
+data$VHD = as.numeric(factor(data$VHD, levels = c("N", "mild", "Moderate", "Severe"))) - 1
+data$LBBB = ifelse(data$BBB == 'LBBB', 1, 0)
+data$RBBB = ifelse(data$BBB == 'RBBB', 1, 0)
+
+# drop BBB and Exertional CP columns
+data = data[, !names(data) %in% c('BBB', 'Exertional.CP')]
+
+# convert to Y-N for original data
+yn_features = c('DM', 'HTN', 'Current.Smoker', 'EX.Smoker', 'FH', 'Edema', 
+              'Typical.Chest.Pain', 'Q.Wave', 'St.Elevation', 'St.Depression', 'Tinversion')
+
+original_data[yn_features] <- lapply(original_data[yn_features], function(x) ifelse(x == 1, "Y", "N"))
+
+# convert other features for original data
+original_data$Sex = ifelse(original_data$Sex == 'Male', 'Male', 'Female')
+original_data$VHD = as.character(data$VHD)
+original_data$Region.RWMA = as.character(original_data$Region.RWMA)
+original_data$Function.Class = as.character(original_data$Function.Class)
+
+# print head after preprocessing
+knitr::kable(head(data, 5), col.names = gsub("[.]", " ", names(data)))
+```
+
+## Exploratory data analysis
+
+An exploratory data analysis can give us a lot of information on how data behave and what is the difference in distribution between the two target classes that can help us identify them, as well as showing which features would just introduce noise and would be better to leave behind. We can experiment with many different plots, let's start by plotting the features into histograms:
+
+```{r histograms, fig.height = 40, echo = FALSE, cache=TRUE}
+
+# function that substitutes dots with spaces to create titles from feature names
+create_title = function(var_name) {
+  return(gsub("\\.", " ", var_name))
+}
+
+
+# function to create plots for continuous features
+create_cont_plot = function(data, var_name) {
+
+  plot = ggplot(data, aes_string(x = var_name)) +
+    geom_histogram(bins = 10, fill = "blue", color = "black", alpha = 0.7) +
+    # geom_density(alpha = 0.5, color = "red", lwd = 2) +
+    labs(title = create_title(var_name), x = "", y = "") +
+    theme_minimal()
+  
+  return(plot)
+}
+
+# function to create plots for discrete features
+create_disc_plot = function(data, var_name) {
+  
+  plot = ggplot(data, aes_string(x = var_name)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(title = create_title(var_name), x = "", y = "") +
+  theme_minimal()
+  
+  return(plot)
+}
+
+# get all continuous features
+continuous_vars = c("Age","Weight","Length","BMI","BP","PR","FBS","CR","TG","LDL","HDL","BUN","ESR","HB","K","Na","WBC","Lymph","Neut","PLT","EF.TTE")
+
+# get all discrete features
+discrete_vars = c("Sex","DM","HTN","Current.Smoker","EX.Smoker","FH","Obesity","CRF","CVA","Airway.disease","Thyroid.Disease","CHF","DLP","Edema","Weak.Peripheral.Pulse","Lung.rales","Systolic.Murmur","Diastolic.Murmur","Typical.Chest.Pain","Dyspnea","Function.Class","Atypical","Nonanginal","LowTH.Ang","Q.Wave","St.Elevation","St.Depression","Tinversion","LVH","Poor.R.Progression","VHD","BBB","Region.RWMA")
+
+# get plots
+plots1 = lapply(continuous_vars, function(var_name) create_cont_plot(data, var_name))
+plots2 = lapply(discrete_vars, function(var_name) create_disc_plot(original_data, var_name))
+
+# print plots
+do.call(grid.arrange, c(c(plots1, plots2), ncol = 3))
+
+```
+
+Despite the low amount of entries we can observe that *many continuous variables take approximately the shape of a Normal distribution*, while for example *EF TTE* seem to take a shape more similar to a Beta distribution. The histograms for the discrete variables don't give us much information in this form, but we can observe a great unbalance in most of the features.
+
+Another interesting observation that can be made with plots is how the behavior of the distributions changes when conditioned on the target class:
+
+```{r histograms conditioned, fig.height = 60, echo = FALSE, cache=TRUE}
+
+# function to create plots for continuous features
+create_cont_plot_cond = function(data, var_name) {
+  
+  plot = ggplot(data, aes_string(x = var_name, fill = "Cath")) +
+    geom_histogram(aes(y = ..density..), bins = 10, color = "black",
+                   alpha = 0.5, position = "identity") +
+    labs(title = create_title(var_name), x = "", y = "") +
+    theme_minimal() +
+    theme(legend.title=element_blank())
+  
+  return(plot)
+}
+
+# function to create plots for discrete features
+create_disc_plot_cond = function(data, var_name) {
+  
+proportions = data %>% group_by(Cath, .data[[var_name]]) %>% summarise(count = n()) %>%
+  mutate(proportion = count / sum(count)) %>% ungroup()
+
+plot = ggplot(proportions, aes(x = Cath, y = proportion, fill = .data[[var_name]])) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(title = create_title(var_name), x = "", y = "") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+  
+  return(plot)
+}
+
+# get plots
+plots1 = lapply(continuous_vars, function(var_name) create_cont_plot_cond(data, var_name))
+plots2 = lapply(discrete_vars, function(var_name) create_disc_plot_cond(original_data, var_name))
+
+# print plots
+do.call(grid.arrange, c(c(plots1, plots2), ncol = 2))
+
+```
+
+From those plots we can infer some interesting patterns: CAD tends to be correlated with a higher age, an increased blood pressure and a higher fasting blood sugar. Males seems to be more affected than females, as well as diabetic people and there are some binary values that take a positive response exclusively in the case of CAD, in particular those inside the electrocardiogram subset of features.
+
+Particularly interesting is the plot of *Typical chest pain*, where we can see that about 25% of patients with CAD do not experience them, a statistic that fits perfectly with what we found online and reported in the introduction.
+
+In the data we also find some unusual behaviors: for all features that are linked to weight as *Weight*, *BMI*, *HDL* and *Obesity* there is little to no difference between the distributions for the two classes, while common knowledge says that being overweight leads to a major increase in heart diseases occurrences. We can interpret this observation as a *bias of the dataset* given by how data has been gathered: since all observations are visitors of a medical facility specialized in cardiovascular diseases the samples recorded are not representative of the overall population. This reasoning has brought to the counterintuitive decision of excluding those kind of variables from the study.
+
+Finally we can analyze the linear correlation between the variables with a correlation plot. Given the high amount of variables it would be messy to create a complete correlation matrix, for this reason we decided to use only the top 10 most correlated features:
+
+```{r corr plot, fig.height = 6, echo = FALSE, cache=TRUE}
+
+exclude = c("Cath", "Weight", "Length", "BMI")
+data$Cath = ifelse(data$Cath == 'Cad', 1, 0)
+
+# create correlation matrix
+cor_matrix = cor(data, use = "complete.obs")
+
+# create ordered list of most correlated features with target
+sorted_cor = sort(abs(cor_matrix["Cath", ]), decreasing = TRUE)
+
+# select top 10 features
+top_features = names(sorted_cor)[1:11]
+
+# create new correlation matrix
+top_cor_matrix = cor_matrix[top_features, top_features]
+
+top_features_names = sapply(top_features, create_title)
+rownames(top_cor_matrix) = top_features_names
+colnames(top_cor_matrix) = top_features_names
+
+# print the correlation matrix
+corrplot(top_cor_matrix, method = "color", addCoef.col = "black", 
+         tl.col = "black", tl.srt = 90, number.cex = 0.7, 
+         title = "", mar=c(0,0,1,0), 
+         type = "upper")
+
+```
+
+# Goals and measures
+
+Since the target variable of this study is binary what the project aims to realize is a **Bayesian logistic regression**. As said before the Bayesian approach is particularly suitable to this problem since it gives the ability to incorporate prior information in our model and is more robust than a frequentist approach in scenarios where few samples are available.
+
+Our aim in terms of model performances is to get the best precision and recall scores as possible, but as for many other medical models, we want to **prioritize a high recall** because in disease detection models it is vital to identify as many true cases as possible since false positives can be resolved simply with further testing while false negatives may endanger the patient.
+
+To test for performances and prevent the measurements from being positively distorted by *overfitting* we divide the dataset into two subsets: a *train set* used for fitting and a *test set* of never-before-seen data to test the inference capabilities of the model. We use the classic proportion of 75% for train and 25% for test and set the random seed to ensure the replicability of the split.
+
+```{r train test split, cache=TRUE}
+
+# set seed for reproducibility
+set.seed(123)
+
+train_indices = sample(seq_len(nrow(data)), size = 0.75 * nrow(data))
+
+# split into train and test sets
+train_data = data[train_indices, ]
+test_data = data[-train_indices, ]
+
+```
+
+# Modelling the Bayesian problem
+
+The model we want to build is a logistic regression. In this model we use our set of features $X = (X_1, ..., X_n)$ to infer the value of a target binary categorical variable:
+
+$$
+Y = \left\{ \begin{array}{cl}
+1 & \text{CAD}  \\
+0 & \text{Normal}
+\end{array} \right.
+$$
+
+Differently from a linear regression a logistic regression models as a linear combination of the parameters not a scalar value but the probability of an event measured in the log-odds, which are defined as $\phi = ln\left( \frac{p}{1-p} \right)$, where $\frac{p}{1-p}$ is the definition of odds and $p \in [0,1]$ is the probability of the event. Therefore the regression we are modelling is:
+
+$$
+\phi = ln\left( \frac{p}{1-p} \right) = \beta_0 + \beta_1 X_1 + ...+ \beta_n X_n
+$$
+
+During the inference step we just reverse the formula to obtain the probability:
+
+$$
+p = \frac{exp(\phi)}{1 + exp(\phi)} = \frac{1}{1 + exp(- \phi)}
+$$
+
+And as prediction we just take the class with the highest probability:
+
+$$
+\text{pred} = \left\{ \begin{array}{cl}
+1 & \text{if } p \ge 0.5 \\
+0 & \text{otherwise}
+\end{array} \right.
+$$
+
+The logistic regression is just one of the forms of the **Generalized Linear Model**, in particular it is what we obtain if the target is distributed as a Bernoulli random variable and the log-odds are what we get as its link function.
+
+Once we have the structure of the model we have to use the training data to infer good values for the $\beta$ parameters.
+
+# Models
+
+## 1. Naive model (baseline)
+
+Our fist model, that we call "naive", is a model that takes every feature defined in the dataset and uses them for the logistic regression. We can use this model as a baseline for the others. As priors we decided to use *Weakly Informative Priors*, a normal distribution with zero mean and high variance.
+
+
+```{r model 1 train, cache=TRUE}
+
+jags_code = "model{
+
+  ##########
+  # PRIORS #
+  ##########
+  
+  # for the intercept we use a normal with mean 0 and precision 0.01
+  beta0 ~ dnorm(0, 0.01)  
+
+  # priors for the coefficients
+  # for those we use a normal with mean 0 and precision 0.4
+  
+  for (j in 1:n_features){
+    beta[j] ~ dnorm(0, 0.4)  
+  }
+  
+  ##############
+  # LIKELIHOOD #
+  ##############
+  
+  for (i in 1:n_samples){
+    # calculate logits (log-odds)
+    logit_p[i] = beta0 + inprod(beta[1:n_features], x[i,])
+    
+    # convert log-odds into probabilities
+    p[i] = 1 / (1 + exp(- logit_p[i]))
+    
+    # get the binary outcome for the target
+    y[i] ~ dbern(p[i])
+  }
+
+}"
+
+features = setdiff(colnames(data), exclude)
+
+# pass parameters to format for JAGS
+model_data = list(
+  x = as.matrix(train_data[, features]),
+  y = train_data$Cath,
+  n_samples = nrow(train_data),
+  n_features = length(features)
+)
+
+jags_model1 = jags(model.file=textConnection(jags_code),
+                  data = model_data, 
+                  inits = NULL,
+                  n.chains = 5,
+                  n.iter = 15000,
+                  n.burnin = 5000,
+                  parameters.to.save = c("beta0", "beta"))
+
+jags_model1
+
+```
+
+```{r model 1 inference, cache=TRUE}
+
+# posterior samples of coefficients
+beta_samples = as.data.frame(ggs(as.mcmc(jags_model1)))
+
+# calculate the mean for each parameter (beta)
+beta_means = beta_samples %>%
+  group_by(Parameter) %>%
+  summarize(mean_value = mean(value)) %>%
+  spread(key = Parameter, value = mean_value)
+
+# prepare the test data with all predictors
+model_test_data = as.matrix(test_data[, features])
+
+# calculate predicted probabilities using posterior means
+logit_prediction = beta_means$beta0 + 
+  model_test_data %*% as.numeric(beta_means[grep("beta(?!0)", names(beta_means), perl = TRUE)])
+
+# convert log-odds to probabilities
+pred_probs = 1 / (1 + exp(- logit_prediction))
+
+# convert probabilities to class predictions
+predictions = ifelse(pred_probs >= 0.5, 1, 0)
+
+# calculate metrics
+accuracy = sum(predictions == test_data$Cath) / nrow(test_data)
+recall = sum(predictions == 1 & test_data$Cath == 1) / sum(test_data$Cath == 1)
+precision = sum(predictions == 1 & test_data$Cath == 1) / sum(predictions == 1)
+f1_score = 2 * (precision * recall) / (precision + recall)
+
+# print metrics
+print(paste("Accuracy: ", accuracy))
+print(paste("Recall: ", recall))
+print(paste("Precision: ", precision))
+print(paste("F1 Score: ", f1_score))
+
+```
+
+```{r model 1 confusion, echo = FALSE, cache=TRUE}
+
+confusion_matrix = as.data.frame(table(Predicted = predictions, Actual = test_data$Cath))
+
+# Create the plot
+ggplot(confusion_matrix, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "skyblue") +
+  theme_minimal() +
+  labs(title = "", x = "Predicted", y = "Actual") +
+  theme(axis.text.x = element_text(hjust = 1))
+
+```
+
+## 2. Model with feature selection
+
+The second model is very similar to the naive one but some features that have been noticed to introduce noise are removed. What we obtain should be a slightly simpler model and this should help convergence.
+
+```{r model 2 train, cache=TRUE}
+
+exclude2 = c("Cath", "Weight", "Length", "BMI", "Atypical", "Nonanginal", "FBS", "Diastolic.Murmur", "Current.Smoker", "EX.Smoker")
+features = setdiff(colnames(data), exclude2)
+
+# pass parameters to format for JAGS
+model_data = list(
+  x = as.matrix(train_data[, features]),
+  y = train_data$Cath,
+  n_samples = nrow(train_data),
+  n_features = length(features)
+)
+
+jags_model2 = jags(model.file=textConnection(jags_code),
+                  data = model_data, 
+                  inits = NULL,
+                  n.chains = 5,
+                  n.iter = 15000,
+                  n.burnin = 5000,
+                  parameters.to.save = c("beta0", "beta"))
+
+jags_model2
+
+```
+
+```{r model 2 inference, cache=TRUE}
+
+# posterior samples of coefficients
+beta_samples = as.data.frame(ggs(as.mcmc(jags_model2)))
+
+# calculate the mean for each parameter (beta)
+beta_means = beta_samples %>%
+  group_by(Parameter) %>%
+  summarize(mean_value = mean(value)) %>%
+  spread(key = Parameter, value = mean_value)
+
+# prepare the test data with all predictors
+model_test_data = as.matrix(test_data[, features])
+
+# calculate predicted probabilities using posterior means
+logit_prediction = beta_means$beta0 + 
+  model_test_data %*% as.numeric(beta_means[grep("beta(?!0)", names(beta_means), perl = TRUE)])
+
+# convert log-odds to probabilities
+pred_probs = 1 / (1 + exp(- logit_prediction))
+
+# convert probabilities to class predictions
+predictions = ifelse(pred_probs >= 0.5, 1, 0)
+
+# calculate metrics
+accuracy = sum(predictions == test_data$Cath) / nrow(test_data)
+recall = sum(predictions == 1 & test_data$Cath == 1) / sum(test_data$Cath == 1)
+precision = sum(predictions == 1 & test_data$Cath == 1) / sum(predictions == 1)
+f1_score = 2 * (precision * recall) / (precision + recall)
+
+# print metrics
+print(paste("Accuracy: ", accuracy))
+print(paste("Recall: ", recall))
+print(paste("Precision: ", precision))
+print(paste("F1 Score: ", f1_score))
+
+```
+
+```{rmodel 2 confusion, echo = FALSE, cache=TRUE}
+
+confusion_matrix = as.data.frame(table(Predicted = predictions, Actual = test_data$Cath))
+
+# Create the plot
+ggplot(confusion_matrix, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "skyblue") +
+  theme_minimal() +
+  labs(title = "", x = "Predicted", y = "Actual") +
+  theme(axis.text.x = element_text(hjust = 1))
+
+```
+
+## 3. Model with feature engineering
+
+This third model takes inspiration from what has been used in the original Dr. Alizadeh's paper about this dataset. A discretization of some variables has been executed differencing levels in "Low", "Normal" and "High". In particular some features have differences depending on the sex of the patient.
+
+| Feature          | Low            | Normal               | High                 |
+|------------------|----------------|----------------------|----------------------|
+| Cr               | Cr < 0.7       | 0.7 ≤ Cr ≤ 1.5       | Cr > 1.5             |
+| FBS              | FBS < 70       | 70 ≤ FBS ≤ 105       | FBS > 105            |
+| LDL              |                | LDL < 130            | LDL > 130            |
+| HDL              | HDL < 35       | HDL ≥ 35             |                      |
+| BUN              | BUN < 7        | 7 ≤ BUN ≤ 20         | BUN > 20             |
+| ESR | | If male and ESR ≤ age/2, if female and ESR ≤ age/2 + 5 | If male and ESR > age/2, if female and ESR > age/2 + 5 |
+| HB | If male and HB < 14, if female and HB < 12.5 | If male and 14 ≤ HB ≤ 17, if female and 12.5 ≤ HB ≤ 15 | If male and HB > 17, if female and HB > 15 |
+| K                | K < 3.8        | 3.8 ≤ K ≤ 5.6        | K > 5.6              |
+| Na               | Na < 136       | 136 ≤ Na ≤ 146       | Na > 146             |
+| WBC              | WBC < 4000     | 4000 ≤ WBC ≤ 11,000  | WBC > 11,000         |
+| PLT              | PLT < 150      | 150 ≤ PLT ≤ 450      | PLT > 450            |
+| EF               | EF ≤ 50        | EF > 50              |                      |
+| Region with RWMA |                | Region with RWMA = 0 | Region with RWMA ≠ 0 |
+| Age | | If male and age ≤ 45, if female and age ≤ 55 | If male and age > 45, if female and age > 55 |
+| BP               | BP < 90        | 90 ≤ BP ≤ 140        | BP > 140             |
+| PulseRate        | PulseRate < 60 | 60 ≤ PulseRate ≤ 100 | PulseRate > 100      |
+| TG               |                | TG < 200             | TG ≥ 200             |
+
+```{r model 3 train, cache=TRUE}
+
+# discretive features
+data$CR = as.numeric(cut(data$CR, breaks=c(-Inf, 0.7, 1.5, Inf), labels=c(0, 1, 2)))
+data$FBS = as.numeric(cut(data$FBS, breaks=c(-Inf, 70, 105, Inf), labels=c(0, 1, 2)))
+data$LDL = as.numeric(cut(data$LDL, breaks=c(-Inf, 130, Inf), labels=c(1, 2)))
+data$HDL = as.numeric(cut(data$HDL, breaks=c(-Inf, 35, Inf), labels=c(0, 1)))
+data$BUN = as.numeric(cut(data$BUN, breaks=c(-Inf, 7, 20, Inf), labels=c(0, 1, 2)))
+data$K = as.numeric(cut(data$K, breaks=c(-Inf, 3.8, 5.6, Inf), labels=c(0, 1, 2)))
+data$Na = as.numeric(cut(data$Na, breaks=c(-Inf, 136, 146, Inf), labels=c(0, 1, 2)))
+data$WBC = as.numeric(cut(data$WBC, breaks=c(-Inf, 4000, 11000, Inf), labels=c(0, 1, 2)))
+data$PLT = as.numeric(cut(data$PLT, breaks=c(-Inf, 150, 450, Inf), labels=c(0, 1, 2)))
+data$EF.TTE = as.numeric(cut(data$EF.TTE, breaks=c(-Inf, 50, Inf), labels=c(0, 1)))
+data$BP = as.numeric(cut(data$BP, breaks=c(-Inf, 90, 140, Inf), labels=c(0, 1, 2)))
+data$PR = as.numeric(cut(data$PR, breaks=c(-Inf, 60, 100, Inf), labels=c(0, 1, 2)))
+data$TG = as.numeric(cut(data$TG, breaks=c(-Inf, 200, Inf), labels=c(1, 2)))
+data$Function.Class = as.numeric(cut(data$Function.Class, breaks=c(-Inf, 1.5, Inf), labels=c(1, 2)))
+data$Region.RWMA = as.numeric(ifelse(data$Region.RWMA == 0, 1, 2))
+data$ESR = as.numeric(with(data, ifelse((Sex == 1 & ESR <= Age/2) | (Sex == 0 & ESR <= Age/2 + 5), 1, 2)))
+data$HB = as.numeric(with(data, ifelse((Sex == 1 & HB < 14) | (Sex == 0 & HB < 12.5), 0, ifelse((Sex == 1 & HB <= 17) | (Sex == 0 & HB <= 15), 1, 2))))
+data$Age = as.numeric(with(data, ifelse((Sex == 1 & Age > 45) | (Sex == 0 & Age > 55), 2, 1)))
+
+# update train and test datasets
+train_data_discrete = data[train_indices, ]
+test_data_discrete = data[-train_indices, ]
+
+features = setdiff(colnames(data), exclude)
+
+# pass parameters to format for JAGS
+model_data = list(
+  x = as.matrix(train_data_discrete[, features]),
+  y = train_data_discrete$Cath,
+  n_samples = nrow(train_data_discrete),
+  n_features = length(features)
+)
+
+jags_model3 = jags(model.file=textConnection(jags_code),
+                  data = model_data, 
+                  inits = NULL,
+                  n.chains = 5,
+                  n.iter = 15000,
+                  n.burnin = 5000,
+                  parameters.to.save = c("beta0", "beta"))
+
+jags_model3
+
+```
+
+```{r model 3 inference, cache=TRUE}
+
+# posterior samples of coefficients
+beta_samples = as.data.frame(ggs(as.mcmc(jags_model3)))
+
+# calculate the mean for each parameter (beta)
+beta_means = beta_samples %>%
+  group_by(Parameter) %>%
+  summarize(mean_value = mean(value)) %>%
+  spread(key = Parameter, value = mean_value)
+
+# prepare the test data with all predictors
+model_test_data = as.matrix(test_data_discrete[, features])
+
+# calculate predicted probabilities using posterior means
+logit_prediction = beta_means$beta0 + 
+  model_test_data %*% as.numeric(beta_means[grep("beta(?!0)", names(beta_means), perl = TRUE)])
+
+# convert log-odds to probabilities
+pred_probs = 1 / (1 + exp(- logit_prediction))
+
+# convert probabilities to class predictions
+predictions = ifelse(pred_probs >= 0.5, 1, 0)
+
+# calculate metrics
+accuracy = sum(predictions == test_data_discrete$Cath) / nrow(test_data_discrete)
+recall = sum(predictions == 1 & test_data_discrete$Cath == 1) / sum(test_data_discrete$Cath == 1)
+precision = sum(predictions == 1 & test_data_discrete$Cath == 1) / sum(predictions == 1)
+f1_score = 2 * (precision * recall) / (precision + recall)
+
+# print metrics
+print(paste("Accuracy: ", accuracy))
+print(paste("Recall: ", recall))
+print(paste("Precision: ", precision))
+print(paste("F1 Score: ", f1_score))
+
+```
+
+```{r model 3 confusion, echo = FALSE, cache=TRUE}
+
+confusion_matrix = as.data.frame(table(Predicted = predictions, Actual = test_data_discrete$Cath))
+
+# Create the plot
+ggplot(confusion_matrix, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "skyblue") +
+  theme_minimal() +
+  labs(title = "", x = "Predicted", y = "Actual") +
+  theme(axis.text.x = element_text(hjust = 1))
+
+```
+
+## 4. Model with "extreme" feature selection and feature engineering
+
+The final model we propose is much more extreme than the first three: we keep the data discretization done before but perform a very strong feature selection operation, keeping only those features that have a reasonably high Pearson correlation score with the target.
+
+```{r model 4 correlation, cache=TRUE}
+
+# define threshold
+threshold = 0.2
+
+# get correlations
+correlations = sapply(names(data)[names(data) != "Cath"], function(x){
+  cor(data[[x]], data[["Cath"]])
+})
+
+correlations = data.frame(Feature = names(correlations), Correlation = correlations)
+
+# select features with correlation above the threshold
+features = (correlations %>% filter(abs(Correlation) > threshold))$Feature
+
+features
+
+```
+
+Setting the threshold to 0.2 we get only 10 features. With respect to the previous models we can expect lower performances but much better convergence scores given the lower complexity of the model.
+
+```{r model 4 train, cache=TRUE}
+
+# pass parameters to format for JAGS
+model_data = list(
+  x = as.matrix(train_data_discrete[, features]),
+  y = train_data_discrete$Cath,
+  n_samples = nrow(train_data_discrete),
+  n_features = length(features)
+)
+
+jags_model4 = jags(model.file=textConnection(jags_code),
+                  data = model_data, 
+                  inits = NULL,
+                  n.chains = 5,
+                  n.iter = 15000,
+                  n.burnin = 5000,
+                  parameters.to.save = c("beta0", "beta"))
+
+jags_model4
+
+```
+
+```{r model 4 inference, cache=TRUE}
+
+# posterior samples of coefficients
+beta_samples = as.data.frame(ggs(as.mcmc(jags_model4)))
+
+# calculate the mean for each parameter (beta)
+beta_means = beta_samples %>%
+  group_by(Parameter) %>%
+  summarize(mean_value = mean(value)) %>%
+  spread(key = Parameter, value = mean_value)
+
+# prepare the test data with all predictors
+model_test_data = as.matrix(test_data_discrete[, features])
+
+# calculate predicted probabilities using posterior means
+logit_prediction = beta_means$beta0 + 
+  model_test_data %*% as.numeric(beta_means[grep("beta(?!0)", names(beta_means), perl = TRUE)])
+
+# convert log-odds to probabilities
+pred_probs = 1 / (1 + exp(- logit_prediction))
+
+# convert probabilities to class predictions
+predictions = ifelse(pred_probs >= 0.5, 1, 0)
+
+# calculate metrics
+accuracy = sum(predictions == test_data_discrete$Cath) / nrow(test_data_discrete)
+recall = sum(predictions == 1 & test_data_discrete$Cath == 1) / sum(test_data_discrete$Cath == 1)
+precision = sum(predictions == 1 & test_data_discrete$Cath == 1) / sum(predictions == 1)
+f1_score = 2 * (precision * recall) / (precision + recall)
+
+# print metrics
+print(paste("Accuracy: ", accuracy))
+print(paste("Recall: ", recall))
+print(paste("Precision: ", precision))
+print(paste("F1 Score: ", f1_score))
+
+```
+
+```{r model 4 confusion, echo = FALSE, cache=TRUE}
+
+confusion_matrix = as.data.frame(table(Predicted = predictions, Actual = test_data_discrete$Cath))
+
+# Create the plot
+ggplot(confusion_matrix, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "skyblue") +
+  theme_minimal() +
+  labs(title = "", x = "Predicted", y = "Actual") +
+  theme(axis.text.x = element_text(hjust = 1))
+
+```
+
+# Models comparison
+
+One of the main criteria used to carry out model selection between Bayesian models obtained with Monte Carlo Markov Chains is the **Deviance Information Criterion** (DIC). Under the assumption of a multivariate normal distribution of the parameters this criterion measures a score (the lower the better) that favors goodness of fit on the data and penalizes the complexity of the model.
+
+Confronting the four models we can see the first two getting the same performances in terms of metrics, with the second having a lower DIC. We can see however that both models have some problems with convergence, as can be observed from some Rhat values being $>1.1$ despite the high amount of iterations.
+
+The model that uses feature discretization has better performances in all metrics and manages to reach a lower DIC than the first model, while having the same amount of features.
+
+The last model, despite the tremendous decrease in the amount of features, manages to get better performances in all metrics when compared to the first two and has about the same F1-score of the third, with a slightly lower recall and slightly higher precision, and has the lowest DIC of all models.
+
+In light of those observations the best models between the four proposed are the third and the fourth and in the next part of the report we will focus on those models to study convergence.
+
+# MCMC convergence diagnostics
+
+What we are doing with JAGS is estimating the posterior distribution of the parameters from their priors and the data using Monte Carlo Markov Chains (MCMCs). If the MCMC has not converged the sampling will be biased, leading to inaccurate predictions. Therefore when using JAGS is critically important to check the convergence of the MCMCs.
+
+There are many different diagnostics for the convergence of MCMCs. To have an idea of the various diagnostics possible we explored the R library *ggmcmc*, which contains various tools for assessing and diagnosing convergence of MCMCs and decided to use **Gelman-Rubin statistic (R-hat)**, **Effective sample size (ESS)** (which are also included in the report at the end of the JAGS execution), **Geweke's diagnostic**, **Autocorrelation**, **Trace plots**, **Density plots**.
+
+## Geweke's diagnostic
+
+Diagnostic for the convergence of MCMCs proposed by Geweke in 1992. It is an hypothesis test that has as null hypothesis that the Markov chain is in the stationary distribution. It is based on a **test for equality of the means of the first and last part of the Markov chain**. The reported value is the Z-score: the difference between the two sample means divided by its estimated standard error.
+
+Plot for model 3:
+
+```{r geweke model 3, cache=TRUE, echo = FALSE, fig.height=10}
+
+plot = ggs_geweke(ggs(as.mcmc(jags_model3), family = "beta"))
+
+print(plot + theme(plot.title = element_blank()))
+
+```
+
+Plot for model 4:
+
+```{r geweke model 4, cache=TRUE, echo = FALSE, fig.height=3}
+
+plot = ggs_geweke(ggs(as.mcmc(jags_model4), family = "beta"))
+
+print(plot + theme(plot.title = element_blank()))
+
+```
+
+## Gelman-Rubin statistic (R-hat)
+
+Gelman-Rubin statistic, also known Potential Scale Reduction Factor or just R-hat statistic is a statistic to assess convergence of Monte Carlo Markov Chains proposed by Gelman and Rubin in 1992. Its value is:
+
+$$
+\hat{R} = \frac{\frac{n-1}{n}W + \frac{1}{n}B}{W}
+$$
+
+Where $n$ is the length of each chain, $B$ is the variance between the mean of the chains and $W$ the mean variance inside each chain. The usual threshold to assess convergence is $\hat{R} < 1.1$.
+
+Plot for model 3:
+
+```{r r-hat model 3, cache=TRUE, echo = FALSE, fig.height=10}
+
+plot = ggs_Rhat(ggs(as.mcmc(jags_model3), family = "beta"))
+
+print(plot + theme(plot.title = element_blank()))
+
+```
+
+Plot for model 4:
+
+```{r r-hat model 4, cache=TRUE, echo = FALSE, fig.height=3}
+
+plot = ggs_Rhat(ggs(as.mcmc(jags_model4), family = "beta"))
+
+print(plot + theme(plot.title = element_blank()))
+
+```
+
+As said before the first two models have some Rhat values that are above the threshold, thus leading us to conclude that they had some convergence issue. Meanwhile both the third and the fourth model have values below the threshold and in particular the fourth has all values well below it.
+
+## Effective sample size (ESS) and autocorrelation
+
+Inside the same chain samples tend to be autocorrelated. The effective sample size is an estimate of the sample size required to achieve the same level of precision if that sample was a simple random sample.
+
+The plots show the *lag-k autocorrelation*, the correlation between a sample and the sample k steps before. This value should become smaller as k increases and indicates that samples can be considered independent.
+
+The ESS is already reported in the JAGS execution while we insert below the autocorrelation plots:
+
+Plot for model 3:
+
+```{r autocorrelation model 3, echo=FALSE, cache=TRUE, fig.height=60}
+
+autocorrelation_plot = ggs_autocorrelation(ggs(as.mcmc(jags_model3)), family = "beta")
+
+print(autocorrelation_plot)
+
+```
+
+Plot for model 4:
+
+```{r autocorrelation model 4, echo=FALSE, cache=TRUE, fig.height=10}
+
+autocorrelation_plot = ggs_autocorrelation(ggs(as.mcmc(jags_model4)), family = "beta")
+
+print(autocorrelation_plot)
+
+```
+
+We can see from both the autocorrelation plots and the low effective sample size reported that for the third model the parameters *beta[45]*, *beta[46]* and the intercept *beta0* present some issues, with their curve still being significantly different from zero even for a large k, even if it seems continuing going down.
+
+Meanwhile the fourth model seem present no issues at all for this diagnostic.
+
+## Trace plots
+
+Trace plots show the behavior of each chain for each parameter over the iterations. In the trace plots, we want to avoid flat parts where the chain stays in the same state for too long or too many consecutive steps in the same direction.
+
+Plot for model 3:
+
+```{r trace plot model 3, cache=TRUE, echo = FALSE, fig.height=60}
+
+plot = ggs_traceplot(ggs(as.mcmc(jags_model3), family = "beta"))
+
+print(plot)
+
+```
+
+Plot for model 4:
+
+```{r trace plot model 4, cache=TRUE, echo = FALSE, fig.height=15}
+
+plot = ggs_traceplot(ggs(as.mcmc(jags_model4), family = "beta"))
+
+print(plot)
+
+```
+
+This diagnostic confirms what we have already seen: for the third model some values seems to have not yet converged; critical behaviors are present in the intercept *beta0* but also some coefficients, more than we have already diagnosed with the previous tools.
+
+## Density plots
+
+They are the density plots of the posterior parameters distributions. Since we have multiple chains there are multiple plots superimposed. The similarity of distribution of different chains for the same parameter is a good symptom of convergence.
+
+Plot for model 3:
+
+```{r density plot model 3, cache=TRUE, echo = FALSE, fig.height=60}
+
+plot = ggs_density(ggs(as.mcmc(jags_model3), family = "beta"))
+
+print(plot)
+
+```
+
+Plot for model 4:
+
+```{r density plot model 4, cache=TRUE, echo = FALSE, fig.height=15}
+
+plot =  ggs_density(ggs(as.mcmc(jags_model4), family = "beta"))
+
+print(plot)
+
+```
+
+Also this diagnostic confirms what we have said above: for the third model the intercept and some coefficients have distribution that differs greatly between chains signifying issues in convergence, while in the fourth model we can observe a much more uniform behavior.
+
+# Comparative analysis with frequentist inference
+
+As suggested by the Final Project Guidelines we want to perform a confrontation between our models and what we could obtain with a frequentist model. This can be of interest to have empirical proof of the effectiveness of the Bayesian approach.
+
+```{r frequentist approach model, cache=TRUE}
+
+features = colnames(data)[colnames(data) != "Cath"]
+
+model_data = train_data[, features]
+
+# fit the logistic regression
+logistic_model = glm(Cath ~ Age + Weight + Length + Sex + BMI + DM + HTN +
+                            Current.Smoker + EX.Smoker + FH + Obesity + CRF +
+                            CVA + Airway.disease + Thyroid.Disease + CHF + DLP +
+                            BP + PR + Edema + Weak.Peripheral.Pulse + Lung.rales +
+                            Systolic.Murmur + Diastolic.Murmur + Typical.Chest.Pain +
+                            Dyspnea + Function.Class + Atypical + Nonanginal +
+                            LowTH.Ang + Q.Wave + St.Elevation + St.Depression +
+                            Tinversion + LVH + Poor.R.Progression + FBS + CR +
+                            TG + LDL + HDL + BUN + ESR + HB + K + Na + WBC +
+                            Lymph + Neut + PLT + EF.TTE + Region.RWMA + VHD +
+                            LBBB + RBBB,
+                      data = train_data)
+
+summary(logistic_model)
+
+```
+
+```{r frequentist approach inference, cache=TRUE}
+
+# make inference on test data
+
+pred_values = predict(logistic_model, test_data, type = "response")
+predictions = ifelse(pred_values > 0.5, 1, 0)
+
+# calculate metrics
+accuracy = mean(predictions == test_data$Cath)
+recall = sum(predictions == 1 & test_data$Cath == 1) / sum(test_data$Cath == 1)
+precision = sum(predictions == 1 & test_data$Cath == 1) / sum(predictions == 1)
+f1_score = 2 * (precision * recall) / (precision + recall)
+
+# print metrics
+print(paste("Accuracy: ", accuracy))
+print(paste("Recall: ", recall))
+print(paste("Precision: ", precision))
+print(paste("F1 Score: ", f1_score))
+
+```
+
+```{r frequentist approach confusion matrix, echo=FALSE, cache=TRUE}
+
+confusion_matrix = as.data.frame(table(Predicted = predictions, Actual = test_data$Cath))
+
+# Create the plot
+ggplot(confusion_matrix, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "skyblue") +
+  theme_minimal() +
+  labs(title = "", x = "Predicted", y = "Actual") +
+  theme(axis.text.x = element_text(hjust = 1))
+
+
+```
+
+We can observe that the Frequentist approach is overall less performant than the Bayesian one. We can also see that it gets better results in terms of precision, while as said in the "Goals" section of the report we preferred models with a high recall instead.
+
+# Conclusions
+
+We successfully used JAGS for estimation of the model parameters and created two models with satisfying performances.
+
+The third model is the most performant but suffers from some convergence issues which make it less reliable, it is possible that those problems are linked to the high amount of features of the model and could be solved by using a higher amount of iterations, but at the cost of an increased computational time.
+
+Meanwhile the fourth model is much lighter and quickly reached convergence, at the cost of being restricted to a simpler model with slightly lower performances.
+
+# References
+
+Alizadehsani, R., Roshanzamir, M., & Sani, Z. (2013). Z-Alizadeh Sani [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5Q31T.
+
+Alizadehsani, R. et al. A data mining approach for diagnosis of coronary artery disease. Comput. Methods Programs Biomed. 111, 52–61 (2013).
+
+National Heart, Lung and Blood Institute. What is Coronary Heart Disease? https://www.nhlbi.nih.gov/health/coronary-heart-disease
+
+Department of Health, New York State. Heart Disease and Stroke Prevention. https://www.health.ny.gov/diseases/cardiovascular/heart_disease/
